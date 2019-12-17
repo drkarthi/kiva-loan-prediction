@@ -1,1 +1,5 @@
 data/
+*.txt
+*.pkl
+.ipynb_checkpoints/
+.DS_Store

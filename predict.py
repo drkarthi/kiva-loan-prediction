@@ -15,6 +15,7 @@ from fancyimpute import SimpleFill, KNN, SoftImpute
 from sklearn.linear_model import LinearRegression
 import lightgbm as lgb
 import matplotlib.pyplot as plt
+import logging
 import pickle
 import os
 import datetime
@@ -41,14 +42,16 @@ def drop_high_missing_features(df, threshold=0.7):
 
 def fill_missing_values(df):
     df = drop_high_missing_features(df)
-    # is_missing = pd.isnull(df).sum().sum()
-    # if is_missing:
-    # 	arr_complete = SimpleFill().fit_transform(df)
-    # 	df = pd.DataFrame(arr_complete, columns = df.columns)
-    df.fillna(df.mean(), inplace = True)	
+    is_missing = pd.isnull(df).sum().sum()
+    pdb.set_trace()
+    if is_missing:
+    	arr_complete = SimpleFill().fit_transform(df)
+    	df = pd.DataFrame(arr_complete, columns = df.columns)
+    # df.fillna(df.mean(), inplace = True)	
     return df
 
 def main():
+    logging.basicConfig(level=logging.DEBUG)
     # read data
     df_loans = pd.read_csv("data/loans_no_descriptions.csv")
     print("Dataset read with {} loans".format(len(df_loans)))
@@ -67,7 +70,7 @@ def main():
     text_fields = ['LOAN_USE', 'TAGS']
     alternative_data_fields = ['IMAGE_ID', 'VIDEO_ID', 'TOWN_NAME']
     date_fields = ['POSTED_TIME', 'PLANNED_EXPIRATION_TIME']
-    y = df_loans['IS_UNFUNDED']
+    y = df_loans['IS_UNFUNDED'].astype('float')
     df_loans.drop(drop_columns + text_fields + alternative_data_fields, axis = 1, inplace = True)
 
     df_loans.info()
@@ -93,53 +96,69 @@ def main():
 
     df_loans.drop(['BORROWER_GENDERS', 'POSTED_TIME', 'PLANNED_EXPIRATION_TIME'], axis = 1, inplace = True)
 
-    print("Converting categorical variables into dummy variables..")
+    logging.info("Converting categorical variables into dummy variables..")
     for col in ["ORIGINAL_LANGUAGE", "ACTIVITY_NAME", "SECTOR_NAME", "COUNTRY_NAME", "CURRENCY_POLICY", "CURRENCY", "REPAYMENT_INTERVAL", "DISTRIBUTION_MODEL"]:
         df_loans[col] = df_loans[col].astype('category')
     # df_loans = pd.get_dummies(df_loans, sparse = True)
     # df_loans = pd.get_dummies(df_loans)
 
+    df_loans = df_loans[['LOAN_AMOUNT']]
+
     df_loans.info()
     # pdb.set_trace()
 
     X_train, X_test, y_train, y_test = train_test_split(df_loans, y, test_size=0.2, random_state=0)
+    logging.info("Train test split successful")
     # X_train = fill_missing_values(X_train)
-    X_train.fillna(X_train.mean(), inplace = True)
+    # X_train.fillna(X_train.mean(), inplace = True)
     # X_test = fill_missing_values(X_test)
-    X_test.fillna(X_test.mean(), inplace = True)
+    # X_test.fillna(X_test.mean(), inplace = True)
+    # logging.info("Filled missing values")
 
     df_loans.info()
     X_train.info()
 
-    del df_loans
+    # del df_loans
+    # logging.info("Deleted the original dataframe")
 
-    # train_data = lgb.Dataset(X_train, y_train, free_raw_data=True)
-    # test_data = lgb.Dataset(X_test, y_test, free_raw_data=True)
+    train_data = lgb.Dataset(X_train, y_train, free_raw_data=True)
+    test_data = lgb.Dataset(X_test, y_test, free_raw_data=True)
+
+    logging.info("Created lgb datasets")
 	
     # if os.path.isfile('model.pkl'):
+    #     # TODO: if pickled model does not have the same columns as the training dataset, then train a new model
+    #     logging.info("Trying to load existing model")
     #     try:
     #         model_lgbm = pickle.load(open('model.pkl', 'rb'))
     #     except FileNotFoundError:
     #         print("Could not load file")
     # else:
+    logging.info("Training a new model since a model does not already exist or could not be loaded")
     param = {'num_leaves':31, 'num_trees':100, 'objective':'binary', 'metric':'binary_logloss'}
     num_round = 10
-    # bst = lgb.train(param, train_data, num_round)
-    # bst.save_model('model.txt')
+    bst = lgb.train(param, train_data, num_round)
+    bst.save_model('one_feat_model.txt')
     model_lgbm = lgb.LGBMClassifier(num_leaves = param['num_leaves'],
                                     n_estimators = param['num_trees'],
                                     objective = param['objective'])
     model_lgbm.fit(X_train, y_train)
-    pickle.dump(model_lgbm, open('model.pkl', 'wb'))
+    pdb.set_trace()
+    pickle.dump(model_lgbm, open('one_feat_model.pkl', 'wb'))
     # lgb.cv(param, train_data, num_round, nfold=5, metrics = ["binary_error", "auc"])
 
     print("Model trained and saved")
 
-    ypred = model_lgbm.predict(X_train)
+    y_pred = model_lgbm.predict(X_train)
+    lgbm_recall = skm.recall_score(y_train, y_pred)
+    lgbm_precision = skm.precision_score(y_train, y_pred)
+
+    logging.info("Precision: " + str(lgbm_precision))
+    logging.info("Recall: " + str(lgbm_recall))
 
     # pdb.set_trace()
 
-    # train the model and predict
+    # train a logistic regression model and predict
     # model = lr_train(X_train, y_train, penalty = 'l2', reg_const = 1)
     # pred, probs = sklearn_predict(model, X_train)
 
