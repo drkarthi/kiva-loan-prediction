@@ -2,7 +2,7 @@
   <v-app>
     <v-toolbar app>
       <v-toolbar-title class="headline text-uppercase">
-        <span class="font-weight-light">My Cool Model</span>
+        <span class="font-weight-light">Will Your Kiva Loan Get Funded?</span>
       </v-toolbar-title>
     </v-toolbar>
 <v-content>

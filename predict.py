@@ -19,6 +19,7 @@ import logging
 import pickle
 import os
 import datetime
+import pandas_profiling
 import pdb
 
 def lr_train(X_train, y_train, penalty, reg_const):
@@ -102,7 +103,8 @@ def main():
     # df_loans = pd.get_dummies(df_loans, sparse = True)
     # df_loans = pd.get_dummies(df_loans)
 
-    df_loans = df_loans[['LOAN_AMOUNT']]
+    # pdb.set_trace()
+    df_loans = df_loans[['LOAN_AMOUNT', 'LENDER_TERM', 'NUM_BORROWERS', 'PERCENT_FEMALE', 'PLANNED_DURATION']]
 
     df_loans.info()
     # pdb.set_trace()
@@ -143,8 +145,12 @@ def main():
                                     n_estimators = param['num_trees'],
                                     objective = param['objective'])
     model_lgbm.fit(X_train, y_train)
+    feature_importance_scores = model_lgbm.booster_.feature_importance()
+    feature_names = model_lgbm.booster_.feature_name()
+    feature_importance = dict(zip(feature_names, feature_importance_scores))
+    print(feature_importance)
     pdb.set_trace()
-    pickle.dump(model_lgbm, open('one_feat_model.pkl', 'wb'))
+    pickle.dump(model_lgbm, open('numeric_feat_model.pkl', 'wb'))
     # lgb.cv(param, train_data, num_round, nfold=5, metrics = ["binary_error", "auc"])
 
     print("Model trained and saved")
