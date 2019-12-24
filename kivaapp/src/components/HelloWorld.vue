@@ -32,6 +32,24 @@
             label="Planned Duration"
             required
           ></v-text-field>
+          <v-select
+            :items="['shared', 'not shared']"
+            v-model="currencyPolicy"
+            label="Currency Policy"
+            required
+          ></v-select>
+          <v-select
+            :items="['weekly', 'monthly', 'irregular', 'bullet']"
+            v-model="repaymentInterval"
+            label="Repayment Interval"
+            required
+          ></v-select>
+          <v-select
+            :items="['direct', 'field_partner']"
+            v-model="distributionModel"
+            label="Distribution Model"
+            required
+          ></v-select>
 <v-btn @click="submit">submit</v-btn>
           <v-btn @click="clear">clear</v-btn>
         </form>
@@ -53,6 +71,9 @@ export default {
       numBorrowers: '',
       percentFemale: '',
       plannedDuration: '',
+      currencyPolicy: '',
+      repaymentInterval: '',
+      distributionModel: '',
       predictedClass : ''
     }),
     methods: {
@@ -62,7 +83,10 @@ export default {
         LENDER_TERM: this.lenderTerm,
         NUM_BORROWERS: this.numBorrowers,
         PERCENT_FEMALE: this.percentFemale,
-        PLANNED_DURATION: this.plannedDuration
+        PLANNED_DURATION: this.plannedDuration,
+        CURRENCY_POLICY: this.currencyPolicy,
+        REPAYMENT_INTERVAL: this.repaymentInterval,
+        DISTRIBUTION_MODEL: this.distributionModel
       })
       .then((response) => {
         this.predictedClass = response.data.class
@@ -74,6 +98,9 @@ export default {
       this.numBorrowers = ''
       this.percentFemale = ''
       this.plannedDuration = ''
+      this.currencyPolicy = ''
+      this.repaymentInterval = ''
+      this.distributionModel = ''
     }
   }
 }
