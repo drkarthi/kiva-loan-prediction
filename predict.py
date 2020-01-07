@@ -51,6 +51,62 @@ def fill_missing_values(df):
     # df.fillna(df.mean(), inplace = True)	
     return df
 
+def error_analysis(X_train, labels, preds):
+    # store the true positives, false negative, false positives and tru negatives for error analysis
+    tp = X_train.iloc[np.where([label == 1 and pred == 1 for (label, pred) in zip(labels, preds)])]
+    tp['label'] = 1
+    tp['pred'] = 1
+
+    fn = X_train.iloc[np.where([label == 1 and pred == 0 for (label, pred) in zip(labels, preds)])]
+    fn['label'] = 1
+    fn['pred'] = 0
+
+    fp = X_train.iloc[np.where([label == 0 and pred == 1 for (label, pred) in zip(labels, preds)])]
+    fp['label'] = 0
+    fp['pred'] = 1
+
+    tn = X_train.iloc[np.where([label == 0 and pred == 0 for (label, pred) in zip(labels, preds)])]
+    tn['label'] = 0
+    tn['pred'] = 0
+
+    logging.info("Writing data for error analysis")
+
+    tp.to_csv("error_analysis/true_positives.csv")
+    fn.to_csv("error_analysis/false negatives.csv")
+    fp.to_csv("error_analysis/false_positives.csv")
+    tn.to_csv("error_analysis/true_negatives.csv")
+
+    return tp, fn, fp, tn
+
+# TODO: verify this is working correctly
+def precision(preds, train_data):
+    '''
+    Self-defined eval metric for lightGBM cross-validation
+    f(preds: array, train_data: Dataset) -> name: string, eval_result: float, is_higher_better: bool
+    '''
+    global FEVAL_COUNT
+    labels = train_data.get_label()
+    # pdb.set_trace()
+    preds = 1. / (1. + np.exp(-preds)) # lgb return log odds ratio?
+    tp = [(label == 1) and (pred >= 0.5) for label, pred in zip(labels, preds)]
+    fp = [(label == 0) and (pred >= 0.5) for label, pred in zip(labels, preds)]
+    precision = tp.count(True)/(tp.count(True)+fp.count(True))
+    return 'precision', precision, True
+
+# TODO: verify this is working correctly
+def recall(preds, train_data):
+    '''
+    Self-defined eval metric for lightGBM cross-validation
+    f(preds: array, train_data: Dataset) -> name: string, eval_result: float, is_higher_better: bool
+    '''
+    labels = train_data.get_label()
+    # pdb.set_trace()
+    preds = 1. / (1. + np.exp(-preds)) # lgb return log odds ratio?
+    tp = [(label == 1) and (pred >= 0.5) for label, pred in zip(labels, preds)]
+    fn = [(label == 1) and (pred < 0.5) for label, pred in zip(labels, preds)]
+    recall = tp.count(True)/(tp.count(True)+fn.count(True))
+    return 'recall', recall, True
+
 def main():
     logging.basicConfig(level=logging.DEBUG)
     # read data
@@ -104,7 +160,9 @@ def main():
     # df_loans = pd.get_dummies(df_loans)
 
     # pdb.set_trace()
-    df_loans = df_loans[['LOAN_AMOUNT', 'LENDER_TERM', 'NUM_BORROWERS', 'PERCENT_FEMALE', 'PLANNED_DURATION']]
+    # df_loans = df_loans[['LOAN_AMOUNT', 'LENDER_TERM', 'NUM_BORROWERS', 'PERCENT_FEMALE', 'PLANNED_DURATION', 
+                        # 'CURRENCY_POLICY', 'REPAYMENT_INTERVAL', 'DISTRIBUTION_MODEL']]
+    df_loans = df_loans.drop(['ACTIVITY_NAME', 'ORIGINAL_LANGUAGE', 'BORROWER_PICTURED'], axis = 1)
 
     df_loans.info()
     # pdb.set_trace()
@@ -137,10 +195,15 @@ def main():
     #         print("Could not load file")
     # else:
     logging.info("Training a new model since a model does not already exist or could not be loaded")
-    param = {'num_leaves':31, 'num_trees':100, 'objective':'binary', 'metric':'binary_logloss'}
+    # TODO: what do these parameters mean?
+    param = {'num_leaves':31, 'num_trees':10, 'objective':'binary', 'metric':'binary_logloss'}
     num_round = 10
+    
+    # train native lightGBM model
     bst = lgb.train(param, train_data, num_round)
-    bst.save_model('one_feat_model.txt')
+    bst.save_model('performant_model.txt')
+
+    # train lightGBM model using sklean API
     model_lgbm = lgb.LGBMClassifier(num_leaves = param['num_leaves'],
                                     n_estimators = param['num_trees'],
                                     objective = param['objective'])
@@ -148,10 +211,16 @@ def main():
     feature_importance_scores = model_lgbm.booster_.feature_importance()
     feature_names = model_lgbm.booster_.feature_name()
     feature_importance = dict(zip(feature_names, feature_importance_scores))
+    feature_importance = {k:v for k,v in sorted(feature_importance.items(), key = lambda item: item[1], reverse = True)}
     print(feature_importance)
+    pickle.dump(model_lgbm, open('performant_model.pkl', 'wb'))
+    cv_metrics = lgb.cv(param, 
+                        train_data, 
+                        num_round, 
+                        nfold=5, 
+                        feval=lambda preds, train_data: [precision(preds, train_data), 
+                                                         recall(preds, train_data)])
     pdb.set_trace()
-    pickle.dump(model_lgbm, open('numeric_feat_model.pkl', 'wb'))
-    # lgb.cv(param, train_data, num_round, nfold=5, metrics = ["binary_error", "auc"])
 
     print("Model trained and saved")
 
@@ -159,10 +228,21 @@ def main():
     lgbm_recall = skm.recall_score(y_train, y_pred)
     lgbm_precision = skm.precision_score(y_train, y_pred)
 
-    logging.info("Precision: " + str(lgbm_precision))
-    logging.info("Recall: " + str(lgbm_recall))
+    logging.info("Precision of sklearn wrapper model: " + str(lgbm_precision))
+    logging.info("Recall of sklearn wrapper model: " + str(lgbm_recall))
 
-    # pdb.set_trace()
+    tp, fn, fp, tn = error_analysis(X_train, y_train, y_pred)
+
+    pdb.set_trace()
+
+    y_prob_native = bst.predict(X_train)
+    y_pred_native = [1 if prob >= 0.5 else 0 for prob in y_prob_native]
+    # TODO: convert continuous output to binary output befoire computing metrics
+    bst_recall = skm.recall_score(y_train, y_pred_native)
+    bst_precision = skm.precision_score(y_train, y_pred_native)
+
+    logging.info("Precision of native model: " + str(bst_precision))
+    logging.info("Recall of native model: " + str(bst_recall))
 
     # train a logistic regression model and predict
     # model = lr_train(X_train, y_train, penalty = 'l2', reg_const = 1)
